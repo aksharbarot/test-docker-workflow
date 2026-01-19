@@ -20,6 +20,9 @@ dependencies {
 
 jar {
     archiveFileName = "testapp.jar"
+    manifest {
+        attributes 'Main-Class': 'com.example.TestApp'
+    }
 }
 
 test {
