@@ -1,0 +1,2 @@
+# After creating all the text files, run:
+./gradlew --version
