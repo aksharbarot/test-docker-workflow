@@ -1,0 +1,83 @@
+name: Docker Build Test
+
+on:
+  pull_request:
+    paths:
+      - 'build.gradle'
+      - 'gradle.properties'
+      - 'settings.gradle'
+      - 'Dockerfile'
+      - 'startup.sh'
+      - 'src/**'
+  push:
+    branches:
+      - main
+
+jobs:
+  docker-build-test:
+    name: Test Docker Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build Docker Image
+        run: |
+          docker build -t test-app:latest .
+          
+      - name: Test Container Structure
+        run: |
+          # Install container-structure-test
+          curl -LO https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64
+          chmod +x container-structure-test-linux-amd64
+          sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
+          
+          # Create test config
+          cat > container-test.yaml <<EOF
+          schemaVersion: 2.0.0
+          fileExistenceTests:
+            - name: 'JAR file exists'
+              path: '/app/testapp.jar'
+              shouldExist: true
+            - name: 'Startup script exists'
+              path: '/app/startup.sh'
+              shouldExist: true
+              permissions: '-rwxr-xr-x'
+            - name: 'DD Agent exists'
+              path: '/app/dd-java-agent.jar'
+              shouldExist: true
+          commandTests:
+            - name: 'Java version'
+              command: 'java'
+              args: ['-version']
+              exitCode: 0
+          metadataTest:
+            exposedPorts: ['8080']
+            workdir: '/app'
+          EOF
+          
+          container-structure-test test --image test-app:latest --config container-test.yaml
+          
+      - name: Test Container Startup
+        run: |
+          docker run -d --name test-container -p 8080:8080 test-app:latest
+          sleep 10
+          
+          # Test if app is responding
+          curl -f http://localhost:8080/health || (echo "Health check failed" && docker logs test-container && exit 1)
+          
+          echo "Container started successfully!"
+          docker stop test-container
+          docker rm test-container
+          
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop test-container || true
+          docker rm test-container || true
+          docker rmi test-app:latest || true
